@@ -61,8 +61,8 @@ struct PowerFeature: Identifiable {
             id: .dimScreen,
             title: "Dim Screen",
             systemImage: "sun.max",
-            summary: "Gradually dims the display to save power.",
-            detail: "Your big shiny screen takes a ton of electricity to run. EnduranceLite slowly dims it over time, but like a frog in boiling water, you won't even notice.\n\nBrightness is restored when low power mode ends, or when you unplug if restore-on-charger is on. If you raise brightness yourself, dimming steps out of the way."
+            summary: "Uses Apple's Low Power Mode display savings only.",
+            detail: "EnduranceLite does not change brightness itself.\n\nWhen Low Power Mode is on, macOS already reduces display power the same way it does at low battery. That system dim applies only while Low Power Mode is enabled, and it stops when you turn Low Power Mode off or plug in (if restore-on-charger is on)."
         )
     ]
 

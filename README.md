@@ -2,7 +2,7 @@
 
 A macOS menu bar utility that stretches laptop battery life. Inspired by [Endurance](https://enduranceapp.com/) — not affiliated with Magnetism Studios.
 
-EnduranceLite watches your charge and, when you hit a threshold you choose, turns on a low-power session: native macOS Low Power Mode, paused browsers, paused background services, sleeping energy-hungry apps, hidden background windows, and a slow screen dim.
+EnduranceLite watches your charge and, when you hit a threshold you choose, turns on a low-power session: native macOS Low Power Mode, paused browsers, paused background services, sleeping energy-hungry apps, and hidden background windows. Display dimming is left to Apple's Low Power Mode.
 
 ## Features
 
@@ -13,7 +13,7 @@ EnduranceLite watches your charge and, when you hit a threshold you choose, turn
 | Pause Services | Pauses Photos analysis, updaters, cloud helpers, and similar background maintenance. |
 | Monitor Expensive Apps | Watches CPU and sleeps apps that stay hot in the background. |
 | Hide Background Apps | Hides apps that are not in front so macOS can throttle them. |
-| Dim Screen | Gradually lowers display brightness and restores it when the session ends. |
+| Dim Screen | Does not drive brightness. macOS Low Power Mode's built-in display savings apply only while Low Power Mode is on. |
 
 Trigger: **Ask**, **Always**, **Never**, or **On Unplug**, at a battery percentage you pick (default 70%).
 

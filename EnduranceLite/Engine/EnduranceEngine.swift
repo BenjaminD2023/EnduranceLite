@@ -27,7 +27,6 @@ final class EnduranceEngine: NSObject, ObservableObject {
 
     private let batteryMonitor = BatteryMonitor()
     private let nativeLowPower = NativeLowPower()
-    private let dimmer = ScreenDimmer()
     private let pauser = ProcessPauser()
     private let energy = EnergyMonitor()
     private let hider = BackgroundHider()
@@ -98,19 +97,15 @@ final class EnduranceEngine: NSObject, ObservableObject {
     }
 
     func toggleFeature(_ id: PowerFeatureID) {
-        settings.set(id, enabled: !settings.isEnabled(id))
+        setFeature(id, enabled: !settings.isEnabled(id))
         selectedFeature = id
-        if isLowPowerActive {
-            // Re-apply so toggling mid-session has an effect.
-            applyFeatures(entering: true)
-        }
     }
 
     func setFeature(_ id: PowerFeatureID, enabled: Bool) {
+        let wasEnabled = settings.isEnabled(id)
         settings.set(id, enabled: enabled)
-        if isLowPowerActive {
-            applyFeatures(entering: true)
-        }
+        guard isLowPowerActive, wasEnabled != enabled else { return }
+        applyOneFeature(id, entering: enabled)
     }
 
     func userToggleLowPower(_ on: Bool) {
@@ -258,9 +253,6 @@ final class EnduranceEngine: NSObject, ObservableObject {
             if settings.isEnabled(.hideBackground) {
                 hider.hideBackgroundApps()
             }
-            if settings.isEnabled(.dimScreen) {
-                dimmer.start()
-            }
             energy.resetHotTracking()
         } else {
             if settings.isEnabled(.slowProcessor) {
@@ -268,11 +260,38 @@ final class EnduranceEngine: NSObject, ObservableObject {
             }
             pauser.resumeAll()
             hider.restore()
-            dimmer.restore()
             energy.resetHotTracking()
         }
         pausedApps = pauser.pausedApps
         nativeLowPowerEnabled = nativeLowPower.isEnabled
+    }
+
+    private func applyOneFeature(_ id: PowerFeatureID, entering: Bool) {
+        switch id {
+        case .slowProcessor:
+            if entering {
+                let ok = nativeLowPower.setEnabled(true)
+                adminDeclined = PrivilegedShell.userDeclined
+                if !ok && PrivilegedShell.userDeclined {
+                    lastError = "Administrator access was declined."
+                }
+            } else {
+                nativeLowPower.restoreLaunchState()
+            }
+            nativeLowPowerEnabled = nativeLowPower.isEnabled
+        case .pauseBrowsers:
+            if entering { _ = pauser.pauseBrowsers() } else { pauser.resumeAll() }
+            pausedApps = pauser.pausedApps
+        case .pauseServices:
+            if entering { _ = pauser.pauseServices() } else { pauser.resumeAll() }
+            pausedApps = pauser.pausedApps
+        case .monitorExpensive:
+            if !entering { energy.resetHotTracking() }
+        case .hideBackground:
+            if entering { hider.hideBackgroundApps() } else { hider.restore() }
+        case .dimScreen:
+            break
+        }
     }
 
     private func pollEnergy() {
@@ -293,7 +312,6 @@ final class EnduranceEngine: NSObject, ObservableObject {
             isLowPowerActive = false
         } else {
             pauser.resumeAll()
-            dimmer.restore()
         }
     }
 
