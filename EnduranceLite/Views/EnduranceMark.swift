@@ -109,35 +109,37 @@ struct MenuBatteryGlyph: View {
     var percent: Int
     var charging: Bool
     var onBattery: Bool
+    var lowPower: Bool = false
 
-    private var fillColor: Color {
-        if charging { return .green }
-        if percent <= 10 { return .red }
-        if percent <= 20 { return .orange }
-        return .primary
+    /// Same yellow macOS uses for the menu-bar battery in Low Power Mode.
+    private var iconColor: Color {
+        if !charging && percent <= 10 { return Color.red }
+        if lowPower { return Color(nsColor: .systemYellow) }
+        return Color.primary
     }
 
     var body: some View {
         HStack(spacing: 1) {
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .stroke(Color.primary, lineWidth: 1.2)
+                    .stroke(iconColor, lineWidth: 1.2)
                     .frame(width: 19, height: 9)
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(fillColor)
+                    .fill(iconColor)
                     .frame(width: max(1.5, 15.5 * CGFloat(percent) / 100), height: 5.5)
                     .padding(.leading, 1.7)
                 if charging {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 6, weight: .bold))
+                        .foregroundStyle(iconColor)
                         .offset(x: 5)
                 }
             }
             RoundedRectangle(cornerRadius: 0.5)
-                .fill(Color.primary)
+                .fill(iconColor)
                 .frame(width: 1.6, height: 4)
         }
         .frame(height: 12)
-        .opacity(onBattery || charging ? 1 : 0.85)
+        .opacity(onBattery || charging || lowPower ? 1 : 0.85)
     }
 }

@@ -9,11 +9,13 @@ struct MenuBarLabel: View {
                 MenuBatteryGlyph(
                     percent: engine.battery.percent,
                     charging: engine.battery.isCharging,
-                    onBattery: engine.battery.onBattery
+                    onBattery: engine.battery.onBattery,
+                    lowPower: engine.isLowPowerActive
                 )
             } else {
                 Image(systemName: engine.isLowPowerActive ? "infinity.circle.fill" : "infinity")
                     .imageScale(.medium)
+                    .foregroundStyle(engine.isLowPowerActive ? Color(nsColor: .systemYellow) : Color.primary)
             }
 
             switch engine.settings.menuBarStyle {
@@ -93,25 +95,27 @@ struct MenuBarPanel: View {
     private var statusRows: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: engine.battery.isCharging ? "battery.100.bolt" : "battery.100")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+                MenuBatteryGlyph(
+                    percent: engine.battery.percent,
+                    charging: engine.battery.isCharging,
+                    onBattery: engine.battery.onBattery,
+                    lowPower: engine.isLowPowerActive
+                )
+                .frame(width: 18)
                 Text(engine.battery.isCharging ? "Charging" : (engine.battery.onBattery ? "On battery" : "Plugged in"))
                     .font(.system(size: 13))
                 Spacer()
                 Text(engine.battery.percentLabel)
                     .font(.system(size: 13).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(engine.isLowPowerActive ? Color(nsColor: .systemYellow) : Color.secondary)
             }
 
             if let temperature = engine.battery.temperatureC {
                 HStack(spacing: 10) {
-                    Circle()
-                        .fill(temperatureColor(temperature))
-                        .frame(width: 8, height: 8)
-                        .padding(.leading, 5)
-                        .padding(.trailing, 5)
+                    Image(systemName: "thermometer.medium")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
                     Text("Battery temperature")
                         .font(.system(size: 13))
                     Spacer()
@@ -181,11 +185,5 @@ struct MenuBarPanel: View {
         PowerFeature.all.compactMap { feature in
             engine.settings.isEnabled(feature.id) ? feature.title : nil
         }
-    }
-
-    private func temperatureColor(_ celsius: Double) -> Color {
-        if celsius >= 40 { return .red }
-        if celsius >= 32 { return .yellow }
-        return .green
     }
 }
