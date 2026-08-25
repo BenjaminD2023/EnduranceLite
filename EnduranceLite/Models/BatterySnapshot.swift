@@ -8,6 +8,7 @@ struct BatterySnapshot: Equatable {
     var timeToEmptyMinutes: Int?
     var timeToFullMinutes: Int?
     var cycleCount: Int?
+    var temperatureC: Double?
     var updatedAt: Date
 
     static let unknown = BatterySnapshot(
@@ -18,6 +19,7 @@ struct BatterySnapshot: Equatable {
         timeToEmptyMinutes: nil,
         timeToFullMinutes: nil,
         cycleCount: nil,
+        temperatureC: nil,
         updatedAt: .distantPast
     )
 

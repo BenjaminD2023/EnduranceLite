@@ -41,10 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .environmentObject(EnduranceEngine.shared)
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []
-        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 610)
+        hosting.frame = NSRect(x: 0, y: 0, width: 920, height: 640)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 610),
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -58,9 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentMinSize = NSSize(width: 900, height: 610)
-        window.contentMaxSize = NSSize(width: 900, height: 610)
-        window.setContentSize(NSSize(width: 900, height: 610))
+        window.contentMinSize = NSSize(width: 920, height: 640)
+        window.contentMaxSize = NSSize(width: 920, height: 640)
+        window.setContentSize(NSSize(width: 920, height: 640))
         window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window

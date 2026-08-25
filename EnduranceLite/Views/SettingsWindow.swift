@@ -6,29 +6,31 @@ struct SettingsWindow: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .padding(.horizontal, 34)
-                .padding(.top, 22)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 40)
+                .padding(.top, 36)
+                .padding(.bottom, 22)
 
             triggerRow
-                .padding(.horizontal, 34)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 24)
 
-            HStack(alignment: .top, spacing: 32) {
+            HStack(alignment: .top, spacing: 36) {
                 featureList
-                    .frame(width: 292)
+                    .frame(width: 300)
                 featureDetail
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.top, 10)
+                    .padding(.top, 12)
+                    .padding(.trailing, 8)
             }
-            .padding(.horizontal, 34)
+            .padding(.horizontal, 40)
             .frame(maxHeight: .infinity, alignment: .top)
 
             footer
-                .padding(.horizontal, 34)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 40)
+                .padding(.top, 18)
+                .padding(.bottom, 18)
         }
-        .frame(width: 900, height: 610)
+        .frame(width: 920, height: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             NSApp.setActivationPolicy(.regular)
@@ -37,9 +39,10 @@ struct SettingsWindow: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 16) {
             EnduranceMark()
-                .frame(width: 72, height: 46)
+                .frame(width: 76, height: 48)
+                .padding(.trailing, 2)
 
             Text("EnduranceLite")
                 .font(.system(size: 36, weight: .ultraLight))
@@ -57,12 +60,13 @@ struct SettingsWindow: View {
                     .lineLimit(1)
             }
             .toggleStyle(.checkbox)
-            .padding(.top, 6)
+            .padding(.top, 8)
+            .padding(.leading, 8)
         }
     }
 
     private var triggerRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Text("Start low power mode:")
                 .font(.system(size: 13))
 
@@ -113,7 +117,7 @@ struct SettingsWindow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -123,7 +127,7 @@ struct SettingsWindow: View {
                 .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
-        .frame(height: 318)
+        .frame(height: 336)
     }
 
     private var featureDetail: some View {
@@ -292,8 +296,8 @@ private struct FeatureRow: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 12)
-            .frame(height: 50)
+            .padding(.horizontal, 14)
+            .frame(height: 52)
             .background(isSelected ? Color.primary.opacity(0.08) : Color.clear)
             .contentShape(Rectangle())
         }

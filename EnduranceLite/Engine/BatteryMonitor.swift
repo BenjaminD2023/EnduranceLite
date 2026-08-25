@@ -1,4 +1,5 @@
 import Foundation
+import IOKit
 import IOKit.ps
 
 final class BatteryMonitor {
@@ -78,9 +79,36 @@ final class BatteryMonitor {
                 timeToEmptyMinutes: (empty ?? 0) > 0 ? empty : nil,
                 timeToFullMinutes: (full ?? 0) > 0 ? full : nil,
                 cycleCount: cycles,
+                temperatureC: readTemperatureC(),
                 updatedAt: Date()
             )
         }
         return .unknown
+    }
+
+    /// AppleSmartBattery reports temperature in centi-Celsius (3100 → 31°C).
+    private static func readTemperatureC() -> Double? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != IO_OBJECT_NULL else { return nil }
+        defer { IOObjectRelease(service) }
+
+        var unmanaged: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let props = unmanaged?.takeRetainedValue() as? [String: Any] else {
+            return nil
+        }
+
+        let raw: Double
+        if let value = props["Temperature"] as? Int {
+            raw = Double(value)
+        } else if let value = props["Temperature"] as? Double {
+            raw = value
+        } else {
+            return nil
+        }
+
+        let celsius = raw > 200 ? raw / 100.0 : raw
+        guard celsius > 0, celsius < 90 else { return nil }
+        return celsius
     }
 }
