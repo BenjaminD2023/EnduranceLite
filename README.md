@@ -17,7 +17,7 @@ EnduranceLite watches your charge and, when you hit a threshold you choose, turn
 
 Trigger: **Ask**, **Always**, **Never**, or **On Unplug**, at a battery percentage you pick (default 70%).
 
-Lives in the menu bar. Opens a SwiftUI settings window (the original Endurance pane lives in System Settings; this app is a standalone window instead).
+Lives in the menu bar. Opens a SwiftUI settings window (the original Endurance pane lives in System Settings; this app is a standalone window instead). Low Power Mode survives sleep, lid close, and unlock — status is restored instead of reset.
 
 ## Requirements
 

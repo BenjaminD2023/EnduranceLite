@@ -3,7 +3,7 @@ import Foundation
 /// Wraps macOS Low Power Mode (`pmset lowpowermode`) and records the value
 /// we found on launch so we can restore it instead of blindly turning it off.
 final class NativeLowPower {
-    private(set) var valueOnLaunch: Bool
+    private(set) var restoreTarget: Bool
     private(set) var lastSetSucceeded = false
 
     var isEnabled: Bool {
@@ -11,7 +11,15 @@ final class NativeLowPower {
     }
 
     init() {
-        valueOnLaunch = ProcessInfo.processInfo.isLowPowerModeEnabled
+        restoreTarget = ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+
+    func setRestoreTarget(_ value: Bool) {
+        restoreTarget = value
+    }
+
+    func captureRestoreTarget() {
+        restoreTarget = isEnabled
     }
 
     @MainActor
@@ -30,6 +38,6 @@ final class NativeLowPower {
 
     @MainActor
     func restoreLaunchState() {
-        _ = setEnabled(valueOnLaunch)
+        _ = setEnabled(restoreTarget)
     }
 }

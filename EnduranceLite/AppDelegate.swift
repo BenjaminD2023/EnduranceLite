@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -8,11 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         EnduranceEngine.shared.start()
         NSApp.setActivationPolicy(.accessory)
 
-        let launchedAsLoginItem = ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] != nil
+        let launchedAsLoginItem = getppid() == 1
+            || ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] != nil
             || ProcessInfo.processInfo.arguments.contains("--background")
         let firstLaunch = !UserDefaults.standard.bool(forKey: "ELHasOpenedSettings")
-        if firstLaunch || !launchedAsLoginItem {
+        let restoringSession = SessionStore.load()?.active == true
+        if firstLaunch {
             UserDefaults.standard.set(true, forKey: "ELHasOpenedSettings")
+        }
+        if (firstLaunch || !launchedAsLoginItem) && !restoringSession {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 self?.showSettings()
             }
@@ -25,7 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        PidBag.emergencyResume()
+        EnduranceEngine.shared.prepareForTermination()
+        if SessionStore.load()?.active != true {
+            PidBag.emergencyResume()
+        }
     }
 
     func showSettings() {

@@ -37,6 +37,12 @@ final class EnduranceEngine: NSObject, ObservableObject {
     private var lastOnBattery = false
     private var cancellables: Set<AnyCancellable> = []
     private var energyTimer: Timer?
+    private var keepAlive: NSObjectProtocol?
+    private var sleepInProgress = false
+    private var ignorePowerPolicyUntil = Date()
+    private var pluggedInSince: Date?
+    private var lastReassertAt = Date.distantPast
+    private var distributedObservers: [NSObjectProtocol] = []
 
     private override init() {
         settings = SettingsStore.load()
@@ -56,6 +62,15 @@ final class EnduranceEngine: NSObject, ObservableObject {
             _ = LoginItem.setEnabled(true)
         }
 
+        keepAlive = ProcessInfo.processInfo.beginActivity(
+            options: [
+                .userInitiatedAllowingIdleSystemSleep,
+                .suddenTerminationDisabled,
+                .automaticTerminationDisabled
+            ],
+            reason: "Keep EnduranceLite’s low-power session across sleep, lid close, and unlock"
+        )
+
         batteryMonitor.onChange = { [weak self] snapshot in
             Task { @MainActor in
                 self?.handleBattery(snapshot)
@@ -69,6 +84,9 @@ final class EnduranceEngine: NSObject, ObservableObject {
                 self?.pollEnergy()
             }
         }
+
+        observeSleepAndUnlock()
+        restorePersistedSessionIfNeeded()
 
         NotificationCenter.default.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .receive(on: RunLoop.main)
@@ -89,11 +107,22 @@ final class EnduranceEngine: NSObject, ObservableObject {
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.tearDownForQuit()
+                self?.prepareForTermination()
             }
             .store(in: &cancellables)
 
         handleBattery(batteryMonitor.snapshot())
+    }
+
+    /// Persist the session without undoing it. Sleep must not look like Quit.
+    func prepareForTermination() {
+        persistSession()
+        if sleepInProgress {
+            return
+        }
+        if !isLowPowerActive {
+            pauser.resumeAll()
+        }
     }
 
     func toggleFeature(_ id: PowerFeatureID) {
@@ -174,13 +203,30 @@ final class EnduranceEngine: NSObject, ObservableObject {
         lastOnBattery = snapshot.onBattery
         nativeLowPowerEnabled = nativeLowPower.isEnabled
 
+        // Lid wake / unlock often reports AC for a moment. Ignore policy
+        // changes until the power source has settled.
+        if Date() < ignorePowerPolicyUntil {
+            if snapshot.isPluggedIn {
+                pluggedInSince = pluggedInSince ?? Date()
+            } else {
+                pluggedInSince = nil
+            }
+            return
+        }
+
         if snapshot.isPluggedIn {
             askedThisDischarge = false
-            if isLowPowerActive && settings.restoreWhenPluggedIn {
+            if pluggedInSince == nil {
+                pluggedInSince = Date()
+            }
+            let pluggedLongEnough = Date().timeIntervalSince(pluggedInSince ?? Date()) >= 8
+            if pluggedLongEnough, isLowPowerActive, settings.restoreWhenPluggedIn {
                 exitLowPower(reason: "plugged in")
             }
             return
         }
+
+        pluggedInSince = nil
 
         if Date() < graceUntil { return }
         if isLowPowerActive { return }
@@ -213,11 +259,13 @@ final class EnduranceEngine: NSObject, ObservableObject {
 
     private func enterLowPower(reason: String) {
         guard !isLowPowerActive else { return }
+        nativeLowPower.captureRestoreTarget()
         isLowPowerActive = true
         lastError = nil
         applyFeatures(entering: true)
         statusMessage = "Low power mode is enabled"
         nativeLowPowerEnabled = nativeLowPower.isEnabled
+        persistSession()
         if adminDeclined && settings.isEnabled(.slowProcessor) {
             lastError = "Administrator access was declined, so native Low Power Mode could not be turned on. Other measures are still running."
         }
@@ -225,14 +273,12 @@ final class EnduranceEngine: NSObject, ObservableObject {
     }
 
     private func exitLowPower(reason: String) {
-        guard isLowPowerActive else {
-            applyFeatures(entering: false)
-            return
-        }
+        guard isLowPowerActive else { return }
         isLowPowerActive = false
         applyFeatures(entering: false)
         statusMessage = "Low power mode is off"
         nativeLowPowerEnabled = nativeLowPower.isEnabled
+        SessionStore.clear()
         _ = reason
     }
 
@@ -265,6 +311,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
         }
         pausedApps = pauser.pausedApps
         nativeLowPowerEnabled = nativeLowPower.isEnabled
+        persistSession()
     }
 
     private func applyOneFeature(_ id: PowerFeatureID, entering: Bool) {
@@ -307,12 +354,94 @@ final class EnduranceEngine: NSObject, ObservableObject {
         }
     }
 
-    private func tearDownForQuit() {
+    private func observeSleepAndUnlock() {
+        let workspace = NSWorkspace.shared.notificationCenter
+
+        workspace.publisher(for: NSWorkspace.willSleepNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleWillSleep()
+            }
+            .store(in: &cancellables)
+
+        workspace.publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleWakeOrUnlock()
+            }
+            .store(in: &cancellables)
+
+        workspace.publisher(for: NSWorkspace.screensDidWakeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleWakeOrUnlock()
+            }
+            .store(in: &cancellables)
+
+        workspace.publisher(for: NSWorkspace.sessionDidBecomeActiveNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleWakeOrUnlock()
+            }
+            .store(in: &cancellables)
+
+        let unlock = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleWakeOrUnlock()
+            }
+        }
+        distributedObservers.append(unlock)
+    }
+
+    private func handleWillSleep() {
+        sleepInProgress = true
+        persistSession()
+    }
+
+    private func handleWakeOrUnlock() {
+        sleepInProgress = false
+        ignorePowerPolicyUntil = Date().addingTimeInterval(20)
+        pluggedInSince = nil
+        let shouldReassert = isLowPowerActive || SessionStore.load()?.active == true
+        if shouldReassert, Date().timeIntervalSince(lastReassertAt) > 1.5 {
+            lastReassertAt = Date()
+            reassertLowPower()
+        }
+        handleBattery(batteryMonitor.snapshot())
+    }
+
+    private func restorePersistedSessionIfNeeded() {
+        guard let session = SessionStore.load(), session.active else { return }
+        ignorePowerPolicyUntil = Date().addingTimeInterval(20)
+        nativeLowPower.setRestoreTarget(session.restoreNativeLowPower)
+        isLowPowerActive = true
+        statusMessage = "Low power mode is enabled"
+        applyFeatures(entering: true)
+        persistSession()
+    }
+
+    private func reassertLowPower() {
+        isLowPowerActive = true
+        statusMessage = "Low power mode is enabled"
+        applyFeatures(entering: true)
+        persistSession()
+    }
+
+    private func persistSession() {
         if isLowPowerActive {
-            applyFeatures(entering: false)
-            isLowPowerActive = false
+            SessionStore.save(
+                SessionStore.State(
+                    active: true,
+                    restoreNativeLowPower: nativeLowPower.restoreTarget,
+                    updatedAt: Date()
+                )
+            )
         } else {
-            pauser.resumeAll()
+            SessionStore.clear()
         }
     }
 
