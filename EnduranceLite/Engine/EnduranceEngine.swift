@@ -134,6 +134,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
 
     func uninstall() {
         exitLowPower(reason: "uninstall")
+        PrivilegedShell.removePmsetGrant()
         _ = LoginItem.setEnabled(false)
         let appURL = Bundle.main.bundleURL
         NSWorkspace.shared.recycle([appURL]) { _, error in
@@ -152,7 +153,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Uninstall EnduranceLite?"
-        alert.informativeText = "This turns off low power tweaks, resumes paused apps, removes the login item, and moves EnduranceLite to the Trash."
+        alert.informativeText = "This turns off low power tweaks, resumes paused apps, removes the one-time Low Power Mode permission, removes the login item, and moves EnduranceLite to the Trash."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Uninstall")
         alert.addButton(withTitle: "Cancel")

@@ -38,7 +38,7 @@ Or open `EnduranceLite.xcodeproj` in Xcode and run.
 
 ## Notes
 
-- Native Low Power Mode needs root (`pmset`). The first time Slow Down Processor runs, macOS shows an administrator password dialog.
+- Native Low Power Mode needs root (`pmset`). The first time Slow Down Processor runs, macOS shows an administrator password dialog once. EnduranceLite installs a sudoers rule for `/usr/bin/pmset` only, so later toggles do not ask again. Uninstall removes that rule.
 - If you force-quit EnduranceLite while apps are paused, they stay frozen. Continue them from Activity Monitor, or run `killall -CONT "Google Chrome"` (swap the name).
 - Developer tools (Xcode, Cursor, Grok, Terminal, etc.) are never auto-slept.
 - This is a personal-team signed build, not notarized. First launch from Finder may need Right Click → Open.

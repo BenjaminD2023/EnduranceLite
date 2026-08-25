@@ -26,7 +26,7 @@ struct PowerFeature: Identifiable {
             title: "Slow Down Processor",
             systemImage: "cpu",
             summary: "Limits CPU boost so the machine draws less power.",
-            detail: "This option saves battery life by disabling high speed processing (Turbo Boost) and limiting the speed of your processor.\n\nOn Apple Silicon, EnduranceLite turns on macOS Low Power Mode — the official equivalent of disabling Turbo Boost. macOS will ask for your administrator password the first time this runs."
+            detail: "This option saves battery life by disabling high speed processing (Turbo Boost) and limiting the speed of your processor.\n\nOn Apple Silicon, EnduranceLite turns on macOS Low Power Mode — the official equivalent of disabling Turbo Boost. macOS asks for your administrator password once; after that, toggling Low Power Mode does not prompt again."
         ),
         PowerFeature(
             id: .pauseBrowsers,

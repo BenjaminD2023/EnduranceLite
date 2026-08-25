@@ -22,10 +22,10 @@ final class NativeLowPower {
         }
         let flag = on ? "1" : "0"
         // Battery-only keeps the machine fast on charger once we restore.
-        let command = "pmset -b lowpowermode \(flag) && pmset -b powernap \(on ? "0" : "1")"
-        let ok = PrivilegedShell.run(command, requireAdmin: true)
-        lastSetSucceeded = ok
-        return ok
+        let lowPower = PrivilegedShell.pmset(["-b", "lowpowermode", flag])
+        let powerNap = PrivilegedShell.pmset(["-b", "powernap", on ? "0" : "1"])
+        lastSetSucceeded = lowPower && powerNap
+        return lastSetSucceeded
     }
 
     @MainActor
