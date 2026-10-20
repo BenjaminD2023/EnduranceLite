@@ -33,14 +33,14 @@ struct PowerFeature: Identifiable {
             title: "Pause Web Browsers",
             systemImage: "wifi",
             summary: "Freezes Safari, Chrome, Arc, Firefox, Edge and others.",
-            detail: "Pauses Safari, Chrome, Arc, Firefox, Edge, Brave and other browsers so they stop burning battery in the background. Your tabs stay right where they were.\n\nClick a browser in the Dock or switch to it to wake it instantly."
+            detail: "Pauses browser helpers so background tabs stop burning battery. The browser's main process stays awake to keep switching responsive, and your tabs stay right where they were.\n\nSwitch back with Command-Tab or the Dock to resume the whole browser, including its GPU, network and renderer helpers. The browser you are using stays awake.\n\nWaking the display unfreezes browser helpers. After a short idle, background helpers pause again.\n\nRaycast, Obsidian, and shared system WebKit processes are never paused."
         ),
         PowerFeature(
             id: .pauseServices,
             title: "Pause Services",
             systemImage: "arrow.up.arrow.down",
             summary: "Stops indexing, backups and other maintenance.",
-            detail: "Pauses background maintenance that quietly drains charge: Photos analysis, media analysis, software updaters, cloud helpers, and similar user-level services.\n\nSpotlight indexing and Time Machine are paused as well when administrator access is available. Everything is resumed when low power mode ends."
+            detail: "Pauses supported background maintenance running under your account, including Photos analysis, media analysis, software updaters and cloud helpers.\n\nEvery process paused by this feature is tracked and resumed when you turn it off, leave low power mode or quit EnduranceLite. Protected system processes and services owned by other users are left alone."
         ),
         PowerFeature(
             id: .monitorExpensive,
@@ -59,10 +59,10 @@ struct PowerFeature: Identifiable {
         ),
         PowerFeature(
             id: .dimScreen,
-            title: "Dim Screen",
+            title: "Display Savings",
             systemImage: "sun.max",
             summary: "Uses Apple's Low Power Mode display savings only.",
-            detail: "EnduranceLite does not change brightness itself.\n\nWhen Low Power Mode is on, macOS already reduces display power the same way it does at low battery. That system dim applies only while Low Power Mode is enabled, and it stops when you turn Low Power Mode off or plug in (if restore-on-charger is on)."
+            detail: "macOS manages display power savings when native Low Power Mode is on. Use Slow Down Processor to enable Low Power Mode.\n\nBrightness continues to follow your macOS display settings. This row shows information about those automatic savings."
         )
     ]
 

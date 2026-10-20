@@ -183,7 +183,7 @@ struct MenuBarPanel: View {
 
     private var activeMeasureLabels: [String] {
         PowerFeature.all.compactMap { feature in
-            engine.settings.isEnabled(feature.id) ? feature.title : nil
+            feature.id != .dimScreen && engine.settings.isEnabled(feature.id) ? feature.title : nil
         }
     }
 }

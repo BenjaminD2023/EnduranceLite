@@ -34,7 +34,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
     private var started = false
     private var askedThisDischarge = false
     private var graceUntil = Date().addingTimeInterval(45)
-    private var lastOnBattery = false
+    private var startPolicy = PowerStartPolicy()
     private var cancellables: Set<AnyCancellable> = []
     private var energyTimer: Timer?
     private var keepAlive: NSObjectProtocol?
@@ -43,6 +43,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
     private var pluggedInSince: Date?
     private var lastReassertAt = Date.distantPast
     private var distributedObservers: [NSObjectProtocol] = []
+    private var pendingNativeRestore = false
 
     private override init() {
         settings = SettingsStore.load()
@@ -59,7 +60,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
         UNUserNotificationCenter.current().delegate = self
 
         if settings.launchAtLogin {
-            _ = LoginItem.setEnabled(true)
+            syncLoginItem()
         }
 
         keepAlive = ProcessInfo.processInfo.beginActivity(
@@ -88,11 +89,11 @@ final class EnduranceEngine: NSObject, ObservableObject {
         observeSleepAndUnlock()
         restorePersistedSessionIfNeeded()
 
-        NotificationCenter.default.publisher(for: NSWorkspace.didActivateApplicationNotification)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] note in
                 guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.pauser.resumeIfNeeded(bundleIdentifier: app.bundleIdentifier, name: app.localizedName)
+                self?.pauser.resumeIfNeeded(processIdentifier: app.processIdentifier, bundleIdentifier: app.bundleIdentifier, name: app.localizedName)
                 self?.pausedApps = self?.pauser.pausedApps ?? []
             }
             .store(in: &cancellables)
@@ -117,12 +118,10 @@ final class EnduranceEngine: NSObject, ObservableObject {
     /// Persist the session without undoing it. Sleep must not look like Quit.
     func prepareForTermination() {
         persistSession()
-        if sleepInProgress {
-            return
-        }
-        if !isLowPowerActive {
-            pauser.resumeAll()
-        }
+        // Native power policy can survive Quit, but in-memory process/window
+        // ownership cannot. Never leave apps frozen for the next launch.
+        pauser.resumeAll()
+        hider.restore()
     }
 
     func toggleFeature(_ id: PowerFeatureID) {
@@ -135,13 +134,17 @@ final class EnduranceEngine: NSObject, ObservableObject {
         settings.set(id, enabled: enabled)
         guard isLowPowerActive, wasEnabled != enabled else { return }
         applyOneFeature(id, entering: enabled)
+        persistSession()
     }
 
     func userToggleLowPower(_ on: Bool) {
         if on {
             enterLowPower(reason: "manual")
-        } else {
+        } else if isLowPowerActive {
             exitLowPower(reason: "manual")
+        } else if pendingNativeRestore {
+            restoreNativePolicy()
+            persistSession()
         }
     }
 
@@ -163,6 +166,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
 
     func uninstall() {
         exitLowPower(reason: "uninstall")
+        guard !pendingNativeRestore else { return }
         PrivilegedShell.removePmsetGrant()
         _ = LoginItem.setEnabled(false)
         let appURL = Bundle.main.bundleURL
@@ -192,15 +196,22 @@ final class EnduranceEngine: NSObject, ObservableObject {
     }
 
     func syncLoginItem() {
-        _ = LoginItem.setEnabled(settings.launchAtLogin)
+        let requested = settings.launchAtLogin
+        guard LoginItem.setEnabled(requested) else {
+            lastError = "Could not update Open at Login. Check EnduranceLite in System Settings → General → Login Items."
+            return
+        }
+        if requested, !LoginItem.isEnabled {
+            lastError = "Open at Login needs approval in System Settings → General → Login Items."
+        }
     }
 
     // MARK: - Policy
 
     private func handleBattery(_ snapshot: BatterySnapshot) {
-        let wasOnBattery = lastOnBattery
         battery = snapshot
-        lastOnBattery = snapshot.onBattery
+        guard snapshot.isPresent else { return }
+        startPolicy.observe(onBattery: snapshot.onBattery, mode: settings.startMode, isLowPowerActive: isLowPowerActive)
         nativeLowPowerEnabled = nativeLowPower.isEnabled
 
         // Lid wake / unlock often reports AC for a moment. Ignore policy
@@ -231,19 +242,12 @@ final class EnduranceEngine: NSObject, ObservableObject {
         if Date() < graceUntil { return }
         if isLowPowerActive { return }
 
-        if settings.startMode == .unplug, !wasOnBattery, snapshot.onBattery {
-            enterLowPower(reason: "unplug")
-            return
-        }
-
-        guard snapshot.onBattery, snapshot.percent <= Int(settings.thresholdPercent) else { return }
-
-        switch settings.startMode {
-        case .always:
-            enterLowPower(reason: "threshold")
-        case .ask:
+        switch startPolicy.decision(onBattery: snapshot.onBattery, percent: snapshot.percent, mode: settings.startMode, thresholdPercent: settings.thresholdPercent) {
+        case .always?, .unplug?:
+            enterLowPower(reason: "battery policy")
+        case .ask?:
             askUser(percent: snapshot.percent)
-        case .never, .unplug:
+        case .never?, nil:
             break
         }
     }
@@ -259,7 +263,15 @@ final class EnduranceEngine: NSObject, ObservableObject {
 
     private func enterLowPower(reason: String) {
         guard !isLowPowerActive else { return }
-        nativeLowPower.captureRestoreTarget()
+        if pendingNativeRestore {
+            restoreNativePolicy()
+            guard !pendingNativeRestore else { return }
+        }
+        let captured = nativeLowPower.captureRestoreTarget()
+        if settings.isEnabled(.slowProcessor), !captured {
+            lastError = "Could not read the battery power policy. Low power mode was not started."
+            return
+        }
         isLowPowerActive = true
         lastError = nil
         applyFeatures(entering: true)
@@ -278,7 +290,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
         applyFeatures(entering: false)
         statusMessage = "Low power mode is off"
         nativeLowPowerEnabled = nativeLowPower.isEnabled
-        SessionStore.clear()
+        persistSession()
         _ = reason
     }
 
@@ -289,10 +301,12 @@ final class EnduranceEngine: NSObject, ObservableObject {
                 adminDeclined = PrivilegedShell.userDeclined
                 if !ok && PrivilegedShell.userDeclined {
                     lastError = "Administrator access was declined."
+                } else if !ok {
+                    lastError = "Could not enable macOS Low Power Mode. Other measures are still running."
                 }
             }
             if settings.isEnabled(.pauseBrowsers) {
-                _ = pauser.pauseBrowsers()
+                _ = pauser.pauseBrowsers(skipFrontmost: true)
             }
             if settings.isEnabled(.pauseServices) {
                 _ = pauser.pauseServices()
@@ -303,7 +317,7 @@ final class EnduranceEngine: NSObject, ObservableObject {
             energy.resetHotTracking()
         } else {
             if settings.isEnabled(.slowProcessor) {
-                nativeLowPower.restoreLaunchState()
+                restoreNativePolicy()
             }
             pauser.resumeAll()
             hider.restore()
@@ -318,23 +332,45 @@ final class EnduranceEngine: NSObject, ObservableObject {
         switch id {
         case .slowProcessor:
             if entering {
+                if pendingNativeRestore {
+                    restoreNativePolicy()
+                    guard !pendingNativeRestore else { return }
+                }
+                guard nativeLowPower.captureRestoreTarget() else {
+                    lastError = "Could not read the battery power policy."
+                    return
+                }
                 let ok = nativeLowPower.setEnabled(true)
                 adminDeclined = PrivilegedShell.userDeclined
                 if !ok && PrivilegedShell.userDeclined {
                     lastError = "Administrator access was declined."
+                } else if !ok {
+                    lastError = "Could not enable macOS Low Power Mode."
                 }
             } else {
-                nativeLowPower.restoreLaunchState()
+                restoreNativePolicy()
             }
             nativeLowPowerEnabled = nativeLowPower.isEnabled
         case .pauseBrowsers:
-            if entering { _ = pauser.pauseBrowsers() } else { pauser.resumeAll() }
+            if entering {
+                _ = pauser.pauseBrowsers(skipFrontmost: true)
+            } else {
+                pauser.resumeBrowsers()
+            }
             pausedApps = pauser.pausedApps
         case .pauseServices:
-            if entering { _ = pauser.pauseServices() } else { pauser.resumeAll() }
+            if entering {
+                _ = pauser.pauseServices()
+            } else {
+                pauser.resume(reason: "service")
+            }
             pausedApps = pauser.pausedApps
         case .monitorExpensive:
-            if !entering { energy.resetHotTracking() }
+            energy.resetHotTracking()
+            if !entering {
+                pauser.resume(reason: "expensive")
+                pausedApps = pauser.pausedApps
+            }
         case .hideBackground:
             if entering { hider.hideBackgroundApps() } else { hider.restore() }
         case .dimScreen:
@@ -343,9 +379,18 @@ final class EnduranceEngine: NSObject, ObservableObject {
     }
 
     private func pollEnergy() {
+        // Recover the entire foreground family even if an activation notification
+        // was missed. Never leave its GPU/network helpers stopped.
+        pauser.resumeFrontmostIfNeeded()
+        pausedApps = pauser.pausedApps
         let result = energy.poll()
         expensiveApps = result.samples
-        guard isLowPowerActive, settings.isEnabled(.monitorExpensive) else { return }
+        guard isLowPowerActive else { return }
+        if settings.isEnabled(.pauseBrowsers), Date() > ignorePowerPolicyUntil {
+            _ = pauser.pauseBrowsers(skipFrontmost: true)
+            pausedApps = pauser.pausedApps
+        }
+        guard settings.isEnabled(.monitorExpensive) else { return }
         for sample in result.hot {
             if pauser.isProtected(name: sample.name, bundleIdentifier: sample.bundleIdentifier) { continue }
             if pauser.pausePID(sample.pid, name: sample.name, bundleIdentifier: sample.bundleIdentifier, reason: "expensive") {
@@ -361,6 +406,13 @@ final class EnduranceEngine: NSObject, ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.handleWillSleep()
+            }
+            .store(in: &cancellables)
+
+        workspace.publisher(for: NSWorkspace.screensDidSleepNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleDisplaySleep()
             }
             .store(in: &cancellables)
 
@@ -400,24 +452,44 @@ final class EnduranceEngine: NSObject, ObservableObject {
     private func handleWillSleep() {
         sleepInProgress = true
         persistSession()
+        handleDisplaySleep()
+    }
+
+    private func handleDisplaySleep() {
+        guard isLowPowerActive, settings.isEnabled(.pauseBrowsers) else { return }
+        _ = pauser.pauseBrowsers(skipFrontmost: false)
+        pausedApps = pauser.pausedApps
     }
 
     private func handleWakeOrUnlock() {
         sleepInProgress = false
         ignorePowerPolicyUntil = Date().addingTimeInterval(20)
         pluggedInSince = nil
-        let shouldReassert = isLowPowerActive || SessionStore.load()?.active == true
-        if shouldReassert, Date().timeIntervalSince(lastReassertAt) > 1.5 {
-            lastReassertAt = Date()
-            reassertLowPower()
+        if isLowPowerActive || SessionStore.load()?.active == true {
+            if settings.isEnabled(.pauseBrowsers) {
+                pauser.resumeBrowsers()
+                pausedApps = pauser.pausedApps
+            }
+            if Date().timeIntervalSince(lastReassertAt) > 1.5 {
+                lastReassertAt = Date()
+                reassertLowPower()
+            }
         }
         handleBattery(batteryMonitor.snapshot())
     }
 
     private func restorePersistedSessionIfNeeded() {
-        guard let session = SessionStore.load(), session.active else { return }
+        guard let session = SessionStore.load() else { return }
+        nativeLowPower.setRestoreTarget(session.batteryLowPowerRestoreTarget)
+        pendingNativeRestore = session.restorePending == true
+        if pendingNativeRestore {
+            restoreNativePolicy()
+        }
+        guard session.active else {
+            persistSession()
+            return
+        }
         ignorePowerPolicyUntil = Date().addingTimeInterval(20)
-        nativeLowPower.setRestoreTarget(session.restoreNativeLowPower)
         isLowPowerActive = true
         statusMessage = "Low power mode is enabled"
         applyFeatures(entering: true)
@@ -427,21 +499,38 @@ final class EnduranceEngine: NSObject, ObservableObject {
     private func reassertLowPower() {
         isLowPowerActive = true
         statusMessage = "Low power mode is enabled"
-        applyFeatures(entering: true)
+        if settings.isEnabled(.slowProcessor) {
+            if !nativeLowPower.setEnabled(true) {
+                lastError = "Could not restore macOS Low Power Mode after waking."
+            }
+        }
+        nativeLowPowerEnabled = nativeLowPower.isEnabled
         persistSession()
     }
 
     private func persistSession() {
-        if isLowPowerActive {
+        if isLowPowerActive || pendingNativeRestore {
             SessionStore.save(
                 SessionStore.State(
-                    active: true,
+                    active: isLowPowerActive,
                     restoreNativeLowPower: nativeLowPower.restoreTarget,
-                    updatedAt: Date()
+                    updatedAt: Date(),
+                    restoreBatteryLowPower: nativeLowPower.restoreTarget,
+                    restorePending: pendingNativeRestore
                 )
             )
         } else {
             SessionStore.clear()
+        }
+    }
+
+    private func restoreNativePolicy() {
+        nativeLowPower.restoreLaunchState()
+        pendingNativeRestore = !nativeLowPower.lastSetSucceeded
+        if pendingNativeRestore {
+            lastError = "Could not restore the previous battery power policy. The saved policy is kept for retry."
+        } else if lastError?.hasPrefix("Could not restore the previous battery power policy.") == true {
+            lastError = nil
         }
     }
 

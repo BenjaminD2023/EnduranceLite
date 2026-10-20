@@ -9,11 +9,11 @@ EnduranceLite watches your charge and, when you hit a threshold you choose, turn
 | Measure | What it does |
 |---|---|
 | Slow Down Processor | Enables macOS Low Power Mode (Apple Silicon equivalent of disabling Turbo Boost). Asks for an administrator password once. |
-| Pause Web Browsers | `SIGSTOP`s Safari, Chrome, Arc, Firefox, Edge, Brave and helpers. Click the browser to wake it; tabs stay put. |
+| Pause Web Browsers | Pauses background browser helpers with `SIGSTOP`, including Dia's GPU, network and renderer processes. Browser main processes stay runnable so Dock and Command-Tab switching remain responsive. Switching back resumes the entire process family; a periodic check also recovers the frontmost family. Display wake resumes helpers before background pausing starts again. Raycast, Obsidian and shared system WebKit processes are excluded. |
 | Pause Services | Pauses Photos analysis, updaters, cloud helpers, and similar background maintenance. |
 | Monitor Expensive Apps | Watches CPU and sleeps apps that stay hot in the background. |
 | Hide Background Apps | Hides apps that are not in front so macOS can throttle them. |
-| Dim Screen | Does not drive brightness. macOS Low Power Mode's built-in display savings apply only while Low Power Mode is on. |
+| Display Savings | Information about macOS Low Power Mode's automatic display savings. Brightness follows your macOS settings; this row has no separate toggle. |
 
 Trigger: **Ask**, **Always**, **Never**, or **On Unplug**, at a battery percentage you pick (default 70%).
 
@@ -36,9 +36,15 @@ That produces a Release build, signs it with your local Apple Development identi
 
 Or open `EnduranceLite.xcodeproj` in Xcode and run.
 
+Run all feature regression checks with `./scripts/test.sh`. They cover browser
+and service process recovery, CPU monitoring, window restoration, battery
+triggers and readings, settings persistence, and native battery policy restoration.
+Pause tests use disposable child process trees; power and window tests use fake
+providers, without changing your Mac's power settings or hiding your apps.
+
 ## Notes
 
 - Native Low Power Mode needs root (`pmset`). The first time Slow Down Processor runs, macOS shows an administrator password dialog once. EnduranceLite installs a sudoers rule for `/usr/bin/pmset` only, so later toggles do not ask again. Uninstall removes that rule.
-- If you force-quit EnduranceLite while apps are paused, they stay frozen. Continue them from Activity Monitor, or run `killall -CONT "Google Chrome"` (swap the name).
+- Quitting normally resumes paused processes and restores hidden windows, while preserving the native Low Power Mode session for relaunch. A forced kill cannot run cleanup; stopped processes then need `SIGCONT` or a relaunch.
 - Developer tools (Xcode, Cursor, Grok, Terminal, etc.) are never auto-slept.
 - This is a personal-team signed build, not notarized. First launch from Finder may need Right Click → Open.

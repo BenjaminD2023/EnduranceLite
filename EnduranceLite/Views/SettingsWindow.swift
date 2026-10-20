@@ -275,8 +275,14 @@ private struct FeatureRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                MacCheckbox(isOn: isOn) {
-                    onToggle(!isOn)
+                if feature.id == .dimScreen {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                } else {
+                    MacCheckbox(isOn: isOn) {
+                        onToggle(!isOn)
+                    }
                 }
 
                 Group {

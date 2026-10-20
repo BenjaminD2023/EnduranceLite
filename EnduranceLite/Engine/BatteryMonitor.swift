@@ -56,34 +56,42 @@ final class BatteryMonitor {
             guard let raw = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() else {
                 continue
             }
-            let desc = raw as NSDictionary
-            let type = desc[kIOPSTypeKey] as? String
-            if type == kIOPSOffLineValue { continue }
-
-            let current = desc[kIOPSCurrentCapacityKey] as? Int ?? 0
-            let maxCapacity = desc[kIOPSMaxCapacityKey] as? Int ?? 100
-            let rawPercent = maxCapacity > 0 ? Int((Double(current) / Double(maxCapacity) * 100).rounded()) : current
-            let charging = desc[kIOPSIsChargingKey] as? Bool ?? false
-            let state = desc[kIOPSPowerSourceStateKey] as? String
-            let plugged = state == kIOPSACPowerValue
-            let present = desc[kIOPSIsPresentKey] as? Bool ?? true
-            let empty = desc[kIOPSTimeToEmptyKey] as? Int
-            let full = desc[kIOPSTimeToFullChargeKey] as? Int
-            let cycles = desc["CycleCount"] as? Int
-
-            return BatterySnapshot(
-                percent: Swift.max(0, Swift.min(100, rawPercent)),
-                isCharging: charging,
-                isPluggedIn: plugged,
-                isPresent: present,
-                timeToEmptyMinutes: (empty ?? 0) > 0 ? empty : nil,
-                timeToFullMinutes: (full ?? 0) > 0 ? full : nil,
-                cycleCount: cycles,
-                temperatureC: readTemperatureC(),
-                updatedAt: Date()
-            )
+            if let snapshot = snapshot(from: raw as NSDictionary, updatedAt: Date(), temperatureC: readTemperatureC()) {
+                return snapshot
+            }
         }
         return .unknown
+    }
+
+    /// Power-source lists can also contain a UPS, disconnected sources, and empty
+    /// battery slots. Only a usable internal battery should drive laptop policy.
+    static func snapshot(from description: NSDictionary, updatedAt: Date, temperatureC: Double?) -> BatterySnapshot? {
+        guard description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
+              description[kIOPSIsPresentKey] as? Bool == true,
+              let state = description[kIOPSPowerSourceStateKey] as? String,
+              state == kIOPSACPowerValue || state == kIOPSBatteryPowerValue,
+              let current = description[kIOPSCurrentCapacityKey] as? Int,
+              let maxCapacity = description[kIOPSMaxCapacityKey] as? Int,
+              maxCapacity > 0 else { return nil }
+
+        let rawPercent = (Double(current) / Double(maxCapacity) * 100).rounded()
+        let percent = Int(Swift.max(0, Swift.min(100, rawPercent)))
+        let plugged = state == kIOPSACPowerValue
+        let charging = plugged && (description[kIOPSIsChargingKey] as? Bool ?? false)
+        let empty = description[kIOPSTimeToEmptyKey] as? Int
+        let full = description[kIOPSTimeToFullChargeKey] as? Int
+
+        return BatterySnapshot(
+            percent: percent,
+            isCharging: charging,
+            isPluggedIn: plugged,
+            isPresent: true,
+            timeToEmptyMinutes: !plugged && (empty ?? 0) > 0 ? empty : nil,
+            timeToFullMinutes: charging && (full ?? 0) > 0 ? full : nil,
+            cycleCount: description["CycleCount"] as? Int,
+            temperatureC: temperatureC,
+            updatedAt: updatedAt
+        )
     }
 
     /// AppleSmartBattery reports temperature in centi-Celsius (3100 → 31°C).
